@@ -1,0 +1,25 @@
+[package]
+name = "myserv-billing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+myserv-core.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+rand.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+reqwest.workspace = true
+ed25519-dalek.workspace = true
+axum = "0.8"
+rusqlite = { version = "0.37", features = ["bundled"] }
+tower-http = { version = "0.6", features = ["limit", "timeout"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

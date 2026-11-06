@@ -1,0 +1,17 @@
+**/target/
+**/node_modules/
+**/dist/
+apps/client/src-tauri/gen/
+.env
+*.db
+*.db-shm
+*.db-wal
+*.pem
+*.key
+*.conf
+!rustfmt.toml
+!infra/awg/awg.conf.example
+playwright-report/
+test-results/
+
+/artifacts/

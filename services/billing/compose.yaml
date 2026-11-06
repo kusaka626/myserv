@@ -1,0 +1,21 @@
+services:
+  billing:
+    image: myserv-billing:local
+    build:
+      context: ../..
+      dockerfile: services/billing/Dockerfile
+    restart: unless-stopped
+    ports: ["127.0.0.1:8090:8090"]
+    volumes: ["orders:/data"]
+    environment:
+      YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID:?Set shop ID}
+      YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY:?Set backend secret}
+      MYSERV_SIGNING_KEY: ${MYSERV_SIGNING_KEY:?Set private signing key}
+      MYSERV_RETURN_URL: ${MYSERV_RETURN_URL:?Set HTTPS return URL}
+      MYSERV_VAT_CODE: ${MYSERV_VAT_CODE:?Choose receipt VAT code}
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs: ["/tmp"]
+volumes:
+  orders:

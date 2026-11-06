@@ -1,0 +1,13 @@
+[package]
+name = "myserv-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+myserv-core.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+clap = { version = "4", features = ["derive"] }
+

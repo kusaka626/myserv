@@ -1,0 +1,138 @@
+use myserv_core::{
+    model::{Credentials, Server as Target},
+    ssh,
+};
+use russh::{
+    Channel, ChannelId,
+    server::{self, Server as _, Session},
+};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
+#[derive(Clone)]
+struct Fixture {
+    authentications: Arc<AtomicUsize>,
+    data: Vec<u8>,
+}
+impl server::Server for Fixture {
+    type Handler = Self;
+    fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self {
+        Self {
+            authentications: self.authentications.clone(),
+            data: vec![],
+        }
+    }
+}
+impl server::Handler for Fixture {
+    type Error = russh::Error;
+    async fn auth_password(
+        &mut self,
+        user: &str,
+        password: &str,
+    ) -> Result<server::Auth, Self::Error> {
+        self.authentications.fetch_add(1, Ordering::SeqCst);
+        Ok(if user == "root" && password == "test-only" {
+            server::Auth::Accept
+        } else {
+            server::Auth::reject()
+        })
+    }
+    async fn channel_open_session(
+        &mut self,
+        _: Channel<server::Msg>,
+        reply: server::ChannelOpenHandle,
+        _: &mut Session,
+    ) -> Result<(), Self::Error> {
+        reply.accept().await;
+        Ok(())
+    }
+    async fn exec_request(
+        &mut self,
+        c: ChannelId,
+        data: &[u8],
+        s: &mut Session,
+    ) -> Result<(), Self::Error> {
+        assert_eq!(data, b"bash -se");
+        s.channel_success(c)?;
+        Ok(())
+    }
+    async fn data(
+        &mut self,
+        _: ChannelId,
+        data: &[u8],
+        _: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.data.extend_from_slice(data);
+        Ok(())
+    }
+    async fn channel_eof(&mut self, c: ChannelId, s: &mut Session) -> Result<(), Self::Error> {
+        s.data(c, b"MYSERV:ready\nfixture-output\n".to_vec())?;
+        s.exit_status_request(c, if self.data == b"fail" { 1 } else { 0 })?;
+        s.eof(c)?;
+        s.close(c)?;
+        Ok(())
+    }
+}
+#[tokio::test]
+async fn pins_host_before_auth_and_preserves_remote_exit_status() {
+    let key = russh::keys::PrivateKey::random(
+        &mut russh::keys::key::safe_rng(),
+        russh::keys::Algorithm::Ed25519,
+    )
+    .unwrap();
+    let expected = key
+        .public_key()
+        .fingerprint(russh::keys::HashAlg::Sha256)
+        .to_string();
+    let config = Arc::new(server::Config {
+        keys: vec![key],
+        auth_rejection_time: Duration::ZERO,
+        ..Default::default()
+    });
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut fixture = Fixture {
+        authentications: calls.clone(),
+        data: vec![],
+    };
+    let task = tokio::spawn(async move { fixture.run_on_socket(config, &listener).await.unwrap() });
+    assert_eq!(ssh::fingerprint("127.0.0.1", port).await.unwrap(), expected);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let credentials = Credentials {
+        password: "test-only".into(),
+        private_key: String::new(),
+        passphrase: String::new(),
+    };
+    let mut target = Target {
+        ip: "127.0.0.1".into(),
+        port,
+        fingerprint: format!("SHA256:{}", "a".repeat(43)),
+    };
+    assert!(ssh::Session::connect(&target, &credentials).await.is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    target.fingerprint = expected;
+    let session = ssh::Session::connect(&target, &credentials).await.unwrap();
+    assert!(
+        session
+            .script("success", |step| assert_eq!(step, "ready"))
+            .await
+            .unwrap()
+            .contains("fixture-output")
+    );
+    let session = ssh::Session::connect(&target, &credentials).await.unwrap();
+    assert!(session.script("fail", |_| {}).await.is_err());
+    let bad = Credentials {
+        password: "wrong".into(),
+        private_key: String::new(),
+        passphrase: String::new(),
+    };
+    assert!(ssh::Session::connect(&target, &bad).await.is_err());
+    task.abort();
+}

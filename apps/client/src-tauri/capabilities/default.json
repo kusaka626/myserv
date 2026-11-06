@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "description": "Local MyServ UI only; no remote origins",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
