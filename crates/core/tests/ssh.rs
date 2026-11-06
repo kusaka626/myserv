@@ -70,8 +70,16 @@ impl server::Handler for Fixture {
         Ok(())
     }
     async fn channel_eof(&mut self, c: ChannelId, s: &mut Session) -> Result<(), Self::Error> {
-        s.data(c, b"MYSERV:ready\nfixture-output\n".to_vec())?;
-        s.exit_status_request(c, if self.data == b"fail" { 1 } else { 0 })?;
+        let input = std::mem::take(&mut self.data);
+        let output = if String::from_utf8_lossy(&input)
+            .contains("open('/var/lib/myserv/state.json')")
+        {
+            br#"{"filename":"myserv-awg.conf","content":"fixture-profile","import_uri":null,"qr_svg":"<svg/>"}"#.to_vec()
+        } else {
+            b"MYSERV:ready\nfixture-output\n".to_vec()
+        };
+        s.data(c, output)?;
+        s.exit_status_request(c, if input == b"fail" { 1 } else { 0 })?;
         s.eof(c)?;
         s.close(c)?;
         Ok(())
@@ -147,6 +155,27 @@ async fn pins_host_before_auth_and_preserves_remote_exit_status() {
         .await
         .unwrap();
     repeat.script("success", |_| {}).await.unwrap();
+    let options = myserv_core::model::Options {
+        protocol: myserv_core::model::Protocol::AmneziaWg,
+        reality_domain: String::new(),
+    };
+    let before = calls.load(Ordering::SeqCst);
+    // Paid entry point continues to require a license even in free-enabled builds.
+    assert!(
+        myserv_core::provision::deploy(&target, &credentials, &options, "", "", |_| {})
+            .await
+            .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), before);
+    #[cfg(feature = "free-preview")]
+    {
+        let profile =
+            myserv_core::provision::deploy_preview(&target, &credentials, &options, |_| {})
+                .await
+                .unwrap();
+        assert_eq!(profile.content, "fixture-profile");
+        assert_eq!(calls.load(Ordering::SeqCst), before + 1);
+    }
     // A different saved key must stop the handshake before sending any password.
     let mut changed = remembered.clone();
     changed.fingerprint = format!("SHA256:{}", "b".repeat(43));

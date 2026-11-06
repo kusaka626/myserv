@@ -35,6 +35,7 @@ export function canDeploy(
   session: string,
   license: string,
   accepted: boolean,
+  freePreview = false,
 ): boolean {
-  return Boolean(session && license && accepted);
+  return Boolean(session && (freePreview || license) && accepted);
 }

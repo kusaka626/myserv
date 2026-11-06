@@ -30,6 +30,7 @@ struct Connected {
 }
 #[derive(Serialize)]
 struct Settings {
+    free_preview: bool,
     billing_ready: bool,
     mobile: bool,
     version: &'static str,
@@ -38,11 +39,15 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 fn billing() -> Result<Billing, String> {
+    if cfg!(feature = "free-preview") {
+        return Err("В тестовой сборке оплата отключена. Настройка бесплатна".into());
+    }
     Billing::new(
         option_env!("MYSERV_BILLING_URL").ok_or("Платёжный сервис не настроен в этой сборке")?,
     )
     .map_err(err)
 }
+#[cfg(not(feature = "free-preview"))]
 fn issuer() -> Result<&'static str, String> {
     option_env!("MYSERV_ISSUER_PUBLIC_KEY").ok_or("Ключ издателя не настроен в этой сборке".into())
 }
@@ -105,7 +110,9 @@ async fn export_file(
 #[tauri::command]
 fn settings() -> Settings {
     Settings {
-        billing_ready: option_env!("MYSERV_BILLING_URL").is_some()
+        free_preview: cfg!(feature = "free-preview"),
+        billing_ready: !cfg!(feature = "free-preview")
+            && option_env!("MYSERV_BILLING_URL").is_some()
             && option_env!("MYSERV_ISSUER_PUBLIC_KEY").is_some(),
         mobile: cfg!(any(target_os = "android", target_os = "ios")),
         version: env!("CARGO_PKG_VERSION"),
@@ -250,15 +257,24 @@ async fn deploy(
         .map_err(|_| "Настройка уже выполняется")?;
     let s = session(&state, &session_id).await?;
     let c = s.lock().await;
+    let progress = |progress| {
+        let _ = app.emit("provision-progress", progress);
+    };
+    #[cfg(feature = "free-preview")]
+    {
+        let _ = license;
+        provision::deploy_preview(&c.server, &c.credentials, &options, progress)
+            .await
+            .map_err(err)
+    }
+    #[cfg(not(feature = "free-preview"))]
     provision::deploy(
         &c.server,
         &c.credentials,
         &options,
         &license,
         issuer()?,
-        |progress| {
-            let _ = app.emit("provision-progress", progress);
-        },
+        progress,
     )
     .await
     .map_err(err)

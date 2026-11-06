@@ -22,4 +22,9 @@ describe("input and operation boundaries", () => {
     expect(canDeploy("s", "", true)).toBe(false);
     expect(canDeploy("s", "l", false)).toBe(false);
   });
+  it("allows free preview without a license but still requires session and consent", () => {
+    expect(canDeploy("s", "", true, true)).toBe(true);
+    expect(canDeploy("", "", true, true)).toBe(false);
+    expect(canDeploy("s", "", false, true)).toBe(false);
+  });
 });

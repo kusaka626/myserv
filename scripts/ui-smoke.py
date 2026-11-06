@@ -1,16 +1,21 @@
 """Browser interaction check. Native calls are mocked ONLY in this test, never in the app."""
+import os
 from playwright.sync_api import sync_playwright
+free_preview = os.environ.get("MYSERV_TEST_FREE_PREVIEW") == "1"
 with sync_playwright() as p:
     browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
     page=browser.new_page(viewport={'width':1280,'height':900})
     errors=[]
     page.on('pageerror',lambda e:errors.append(str(e)))
+    page.add_init_script('window.myservTestFree = ' + str(free_preview).lower() + ';')
     page.add_init_script('''
       window.isTauri = true;
       window.__TAURI_INTERNALS__ = {
         transformCallback: () => 1,
         invoke: async (cmd, args) => {
-          if (cmd === 'settings') return {billing_ready:true,mobile:false,version:'test'};
+          if (cmd === 'settings') return {free_preview:window.myservTestFree,billing_ready:!window.myservTestFree,mobile:false,version:'test'};
+          if (window.myservTestFree && ['create_payment','check_payment','open_payment'].includes(cmd)) throw new Error('Payment called in free mode');
+          if (window.myservTestFree && cmd === 'deploy' && args.license !== '') throw new Error('Free mode should not forge a license');
           if (cmd === 'plugin:event|listen') return 1;
           if (cmd === 'connect') {
             if (Object.keys(args).sort().join(',') !== 'ip,password,port,username') throw new Error('Unexpected fields');
@@ -37,9 +42,14 @@ with sync_playwright() as p:
     page.get_by_role('button',name='Подключить сервер',exact=True).click()
     page.get_by_role('heading',name='Как будем подключаться?').wait_for()
     page.get_by_role('button',name='Продолжить',exact=True).click()
-    page.get_by_label('Email для чека').fill('fixture@example.com')
-    page.get_by_role('button',name='Оплатить 199 ₽').click()
-    page.get_by_role('button',name='Проверить оплату').click()
+    if free_preview:
+        page.get_by_role('heading',name='Всё готово к установке').wait_for()
+        assert page.get_by_label('Email для чека').count() == 0
+        assert 'Оплатить настройку' not in page.locator('nav').inner_text()
+    else:
+        page.get_by_label('Email для чека').fill('fixture@example.com')
+        page.get_by_role('button',name='Оплатить 199 ₽').click()
+        page.get_by_role('button',name='Проверить оплату').click()
     page.get_by_role('button',name='Настроить мой сервер').click()
     assert 'Подтвердите разрешение' in page.get_by_role('alert').inner_text()
     page.get_by_label('Это мой чистый VPS').check()

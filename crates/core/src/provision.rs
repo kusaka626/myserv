@@ -29,6 +29,28 @@ pub async fn deploy(
     server.validate()?;
     options.validate()?;
     license::verify(token, issuer_key, &server.binding()?)?;
+    deploy_inner(server, credentials, options, on_progress).await
+}
+
+/// Explicitly enabled free test build; the licensed entry point still verifies payment.
+#[cfg(feature = "free-preview")]
+pub async fn deploy_preview(
+    server: &Server,
+    credentials: &Credentials,
+    options: &Options,
+    on_progress: impl Fn(Progress),
+) -> Result<Profile> {
+    deploy_inner(server, credentials, options, on_progress).await
+}
+
+async fn deploy_inner(
+    server: &Server,
+    credentials: &Credentials,
+    options: &Options,
+    on_progress: impl Fn(Progress),
+) -> Result<Profile> {
+    server.validate()?;
+    options.validate()?;
     let session = Session::connect(server, credentials).await?;
     on_progress(Progress {
         step: "preflight".into(),

@@ -58,3 +58,7 @@ bash scripts/native-check.sh
 ```
 
 Скрипт использует уже установленный rustup и отдельный target-каталог. Это проверка Linux-кода оболочки, не замена испытаний Windows/iOS/Android. На Linux также возможна кросс-сборка Windows GNU: установите target для **закреплённого** toolchain (`rustup target add --toolchain 1.99.1 x86_64-pc-windows-gnu`), MinGW из `infra/dev/Windows.Dockerfile`, затем `cargo build --release --features custom-protocol --manifest-path apps/client/src-tauri/Cargo.toml --target x86_64-pc-windows-gnu`. `custom-protocol` обязателен для встраивания UI при прямом вызове Cargo. Для официального Windows-релиза предпочтительна нативная MSVC-сборка через Tauri CLI.
+
+## Бесплатная тестовая версия 0.1.2
+
+В `apps/client/src-tauri/Cargo.toml` по умолчанию включена функция `free-preview`. Она пропускает оплату и лицензию только через отдельный путь тестовой установки; обычный `myserv_core::provision::deploy` продолжает проверять лицензию. Для платной версии используйте `cargo build --release --no-default-features --features custom-protocol --manifest-path apps/client/src-tauri/Cargo.toml` после сборки frontend и задания переменных платёжного API. Изменение режима требует пересборки EXE.
