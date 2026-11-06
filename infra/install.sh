@@ -46,10 +46,12 @@ echo MYSERV:packages >&3
 stage=packages
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y --no-install-recommends docker.io curl ca-certificates iptables openssl
+# unattended-upgrades may own dpkg on a newly rented VPS. Let apt wait safely;
+# never delete its lock files or interrupt the other package manager.
+apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends docker.io curl ca-certificates iptables openssl
 if [ "$protocol" = amnezia_wg ]; then
     # docker.io alone can fall back to the legacy builder, which rejects RUN --mount.
-    apt-get install -y --no-install-recommends docker-buildx
+    apt-get -o DPkg::Lock::Timeout=600 install -y --no-install-recommends docker-buildx
     docker buildx version
 fi
 systemctl enable --now docker
