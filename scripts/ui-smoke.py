@@ -12,8 +12,11 @@ with sync_playwright() as p:
         invoke: async (cmd, args) => {
           if (cmd === 'settings') return {billing_ready:true,mobile:false,version:'test'};
           if (cmd === 'plugin:event|listen') return 1;
-          if (cmd === 'discover') return 'SHA256:'+'a'.repeat(43);
-          if (cmd === 'connect') return {session:'test',summary:'Fixture Ubuntu 24.04'};
+          if (cmd === 'connect') {
+            if (Object.keys(args).sort().join(',') !== 'ip,password,port,username') throw new Error('Unexpected fields');
+            if (args.username !== 'ubuntu' || args.port !== 2222 || args.password !== 'test-only') throw new Error('Wrong credentials');
+            return {session:'test',summary:'Сервер подходит для установки'};
+          }
           if (cmd === 'create_payment') return {status:'pending',confirmation_url:'https://yookassa.ru/test',license:null};
           if (cmd === 'open_payment') return null;
           if (cmd === 'check_payment') return {status:'succeeded',confirmation_url:null,license:'test.signature'};
@@ -27,10 +30,11 @@ with sync_playwright() as p:
     page.goto('http://127.0.0.1:1420')
     page.get_by_role('button',name='Сервер куплен, продолжить').click()
     page.get_by_placeholder('203.0.113.10').fill('203.0.113.10')
-    page.get_by_role('button',name='Проверить отпечаток сервера').click()
-    page.get_by_label('Отпечаток совпадает').check()
+    assert page.locator('main input').count() == 4
+    page.get_by_label('Логин',exact=True).fill('ubuntu')
+    page.get_by_label('Порт',exact=True).fill('2222')
     page.get_by_placeholder('Пароль из панели хостинга').fill('test-only')
-    page.get_by_role('button',name='Подключить и проверить').click()
+    page.get_by_role('button',name='Подключить сервер',exact=True).click()
     page.get_by_role('heading',name='Как будем подключаться?').wait_for()
     page.get_by_role('button',name='Продолжить',exact=True).click()
     page.get_by_label('Email для чека').fill('fixture@example.com')

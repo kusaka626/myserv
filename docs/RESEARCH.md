@@ -25,8 +25,8 @@ MyServ — приложение для обучения покупке VPS и а
 | --- | --- |
 | Общее ядро | Rust crate `myserv-core`, без UI-зависимостей; используется CLI и Tauri |
 | Клиент | Tauri 2: Windows, Android, iOS; интерфейс HTML/CSS/TypeScript, бизнес-логика Rust |
-| SSH | Нативный async `russh`, без внешнего ssh.exe и shell на устройстве |
-| ОС сервера | Чистая Ubuntu 24.04, systemd, root, IPv4, x86_64/aarch64; минимум 2 ГБ RAM и 8 ГБ свободно; рекомендуются 2 vCPU и SSD 20 ГБ |
+| SSH | Нативный async `russh`; GUI запоминает ключ при первом использовании (TOFU), смена ключа блокируется до авторизации; CLI позволяет независимую сверку |
+| ОС сервера | Чистая Ubuntu 24.04, systemd, root или sudo, IPv4, x86_64/aarch64; минимум 2 ГБ RAM и 8 ГБ свободно; рекомендуются 2 vCPU и SSD 20 ГБ |
 | Контейнеры | Docker + одноузловой K3s. Это тяжелее обычного Docker Compose, но выполняет требование Kubernetes |
 | AmneziaWG | Userspace Go/TUN вместо установки модуля ядра; контейнеру нужны привилегии NET_ADMIN/доступ к TUN; Kubernetes-вариант privileged |
 | Сеть | hostNetwork для фиксированных VPN-портов, host-gw CNI без VXLAN, Kubernetes API и kubelet на loopback |

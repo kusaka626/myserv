@@ -112,20 +112,30 @@ fn settings() -> Settings {
     }
 }
 #[tauri::command]
-async fn discover(ip: String, port: u16) -> Result<String, String> {
-    ssh::fingerprint(&ip, port).await.map_err(err)
-}
-#[tauri::command]
 async fn connect(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
-    server: Server,
-    credentials: Credentials,
+    ip: String,
+    port: u16,
+    username: String,
+    password: String,
 ) -> Result<Connected, String> {
     let _lock = state
         .operation
         .try_lock()
         .map_err(|_| "Другая операция уже выполняется")?;
-    let summary = provision::inspect(&server, &credentials)
+    let credentials = Credentials {
+        username,
+        password,
+        private_key: String::new(),
+        passphrase: String::new(),
+    };
+    let dir = app.path().app_data_dir().map_err(err)?.join("known-hosts");
+    let (server, remote) = ssh::Session::connect_remembered(&ip, port, &credentials, &dir)
+        .await
+        .map_err(err)?;
+    let summary = remote
+        .script(provision::PREFLIGHT, |_| {})
         .await
         .map_err(err)?;
     let id = Uuid::new_v4().to_string();
@@ -278,7 +288,6 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             settings,
-            discover,
             connect,
             disconnect,
             create_payment,

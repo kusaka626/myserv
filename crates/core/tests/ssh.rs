@@ -106,6 +106,7 @@ async fn pins_host_before_auth_and_preserves_remote_exit_status() {
     assert_eq!(ssh::fingerprint("127.0.0.1", port).await.unwrap(), expected);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     let credentials = Credentials {
+        username: "root".into(),
         password: "test-only".into(),
         private_key: String::new(),
         passphrase: String::new(),
@@ -129,10 +130,83 @@ async fn pins_host_before_auth_and_preserves_remote_exit_status() {
     let session = ssh::Session::connect(&target, &credentials).await.unwrap();
     assert!(session.script("fail", |_| {}).await.is_err());
     let bad = Credentials {
+        username: "root".into(),
         password: "wrong".into(),
         private_key: String::new(),
         passphrase: String::new(),
     };
     assert!(ssh::Session::connect(&target, &bad).await.is_err());
+    let dir = std::env::temp_dir().join(format!("myserv-ssh-{}", uuid::Uuid::new_v4()));
+    let (remembered, first) =
+        ssh::Session::connect_remembered(&target.ip, port, &credentials, &dir)
+            .await
+            .unwrap();
+    assert_eq!(remembered.fingerprint, target.fingerprint);
+    first.script("success", |_| {}).await.unwrap();
+    let (_, repeat) = ssh::Session::connect_remembered(&target.ip, port, &credentials, &dir)
+        .await
+        .unwrap();
+    repeat.script("success", |_| {}).await.unwrap();
+    // A different saved key must stop the handshake before sending any password.
+    let mut changed = remembered.clone();
+    changed.fingerprint = format!("SHA256:{}", "b".repeat(43));
+    std::fs::write(
+        dir.join(format!("127.0.0.1-{port}.json")),
+        serde_json::to_vec(&changed).unwrap(),
+    )
+    .unwrap();
+    let before = calls.load(Ordering::SeqCst);
+    assert!(
+        ssh::Session::connect_remembered(&target.ip, port, &credentials, &dir)
+            .await
+            .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), before);
+    std::fs::remove_dir_all(dir).unwrap();
     task.abort();
+}
+
+/// Run against the disposable OpenSSH container described in scripts/ssh-smoke.sh.
+#[tokio::test]
+#[ignore = "requires disposable OpenSSH fixture"]
+async fn openssh_root_and_sudo() {
+    let port: u16 = std::env::var("MYSERV_TEST_SSH_PORT")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let dir = std::env::temp_dir().join(format!("myserv-openssh-{}", uuid::Uuid::new_v4()));
+    for username in ["root", "ubuntu", "limited"] {
+        let credentials = Credentials {
+            username: username.into(),
+            password: "test-only-$'\\!".into(),
+            private_key: String::new(),
+            passphrase: String::new(),
+        };
+        let (_, session) = ssh::Session::connect_remembered("127.0.0.1", port, &credentials, &dir)
+            .await
+            .unwrap();
+        let result = session
+            .script("id -u\nprintf 'script-intact\\n'\n", |_| {})
+            .await;
+        if username == "limited" {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("права администратора")
+            );
+        } else {
+            assert_eq!(
+                result.unwrap_or_else(|e| panic!("{username}: {e}")),
+                "0\nscript-intact\n"
+            );
+            let failure = session
+                .script("printf 'MYSERV_ERROR:memory\\n'; exit 1", |_| {})
+                .await
+                .unwrap_err()
+                .to_string();
+            assert!(failure.contains("2 ГБ"), "{failure}");
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }

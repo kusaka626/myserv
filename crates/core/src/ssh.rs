@@ -35,7 +35,7 @@ impl client::Handler for HostKey {
 }
 
 /// Unauthenticated discovery: deliberately rejects the host after recording its key.
-/// The user must verify this fingerprint via the hosting console before authentication.
+/// The GUI pins it on first use; CLI callers may verify it independently.
 pub async fn fingerprint(ip: &str, port: u16) -> Result<String> {
     let _: Ipv4Addr = ip.parse().context("Укажите IPv4 сервера")?;
     ensure!(port > 0, "Неверный порт");
@@ -54,9 +54,44 @@ pub async fn fingerprint(ip: &str, port: u16) -> Result<String> {
     result.context("Не удалось получить SSH-ключ: проверьте адрес, порт и доступность сервера")
 }
 
-pub struct Session(client::Handle<HostKey>);
+pub struct Session {
+    handle: client::Handle<HostKey>,
+    sudo_password: Option<zeroize::Zeroizing<String>>,
+}
+
+// Keep the parent bash alive: sudo's non-TTY timestamp is bound to its parent PID.
+// Without the trailing exit, bash may exec sudo and invalidate that timestamp.
+pub const SUDO_COMMAND: &str = "bash -c 'IFS= read -r myserv_pw; printf \"%s\\n\" \"$myserv_pw\" | sudo -S -p \"\" -v || exit 77; unset myserv_pw; sudo -n -- bash -se; exit $?'";
+
 impl Session {
     pub async fn connect(server: &Server, credentials: &Credentials) -> Result<Self> {
+        credentials.validate()?;
+        Self::authenticate(Self::open(server).await?, credentials).await
+    }
+
+    pub async fn connect_remembered(
+        ip: &str,
+        port: u16,
+        credentials: &Credentials,
+        dir: &std::path::Path,
+    ) -> Result<(Server, Self)> {
+        credentials.validate()?;
+        let server = match crate::trust::load(dir, ip, port)? {
+            Some(server) => server,
+            None => Server {
+                ip: ip.into(),
+                port,
+                fingerprint: fingerprint(ip, port).await?,
+            },
+        };
+        let handle = Self::open(&server).await?;
+        // Finish the signed handshake and persist the key before sending credentials.
+        crate::trust::remember(dir, &server)?;
+        let session = Self::authenticate(handle, credentials).await?;
+        Ok((server, session))
+    }
+
+    async fn open(server: &Server) -> Result<client::Handle<HostKey>> {
         server.validate()?;
         let config = Arc::new(client::Config {
             inactivity_timeout: Some(Duration::from_secs(1800)),
@@ -67,13 +102,20 @@ impl Session {
             expected: Some(server.fingerprint.clone()),
             observed: Arc::new(Mutex::new(None)),
         };
-        let mut session = tokio::time::timeout(
+        let session = tokio::time::timeout(
             Duration::from_secs(20),
             client::connect(config, (server.ip.as_str(), server.port), handler),
         )
         .await
         .context("Таймаут SSH")?
-        .context("SSH: соединение отклонено или изменился ключ сервера")?;
+        .context("Не удалось безопасно подключиться к серверу. Проверьте IP и порт. Если ключ сервера изменился после переустановки VPS, обратитесь в поддержку для обновления записи сервера")?;
+        Ok(session)
+    }
+
+    async fn authenticate(
+        mut session: client::Handle<HostKey>,
+        credentials: &Credentials,
+    ) -> Result<Self> {
         let authenticated = tokio::time::timeout(Duration::from_secs(30), async {
             if !credentials.private_key.is_empty() {
                 let passphrase =
@@ -84,34 +126,51 @@ impl Session {
                 Ok::<_, anyhow::Error>(
                     session
                         .authenticate_publickey(
-                            "root",
+                            &credentials.username,
                             PrivateKeyWithHashAlg::new(Arc::new(key), hash),
                         )
                         .await?
                         .success(),
                 )
             } else {
-                ensure!(
-                    !credentials.password.is_empty(),
-                    "Укажите SSH-ключ или пароль root"
-                );
+                ensure!(!credentials.password.is_empty(), "Введите пароль сервера");
                 Ok(session
-                    .authenticate_password("root", &credentials.password)
+                    .authenticate_password(&credentials.username, &credentials.password)
                     .await?
                     .success())
             }
         })
         .await
         .context("Таймаут авторизации SSH")??;
-        ensure!(authenticated, "SSH: авторизация не пройдена");
-        Ok(Self(session))
+        ensure!(
+            authenticated,
+            "Не удалось войти на сервер. Проверьте логин и пароль. На сервере должен быть разрешён вход по паролю"
+        );
+        Ok(Self {
+            handle: session,
+            sudo_password: (credentials.username != "root")
+                .then(|| zeroize::Zeroizing::new(credentials.password.clone())),
+        })
     }
 
     pub async fn script(&self, script: &str, on_step: impl Fn(&str)) -> Result<String> {
         tokio::time::timeout(Duration::from_secs(1800), async {
-            let mut channel = self.0.channel_open_session().await?;
-            channel.exec(true, "bash -se").await?;
-            channel.data(script.as_bytes()).await?;
+            let mut channel = self.handle.channel_open_session().await?;
+            channel
+                .exec(
+                    true,
+                    if self.sudo_password.is_some() {
+                        SUDO_COMMAND
+                    } else {
+                        "bash -se"
+                    },
+                )
+                .await?;
+            let input = zeroize::Zeroizing::new(match &self.sudo_password {
+                Some(password) => format!("{}\n{script}", password.as_str()),
+                None => script.to_owned(),
+            });
+            channel.data(input.as_bytes()).await?;
             channel.eof().await?;
             let mut out = Vec::new();
             let mut line = Vec::new();
@@ -119,13 +178,21 @@ impl Session {
             while let Some(msg) = channel.wait().await {
                 match msg {
                     ChannelMsg::Data { data } => {
-                        ensure!(out.len() + data.len() <= 4 * 1024 * 1024, "Слишком большой ответ SSH");
+                        ensure!(
+                            out.len() + data.len() <= 4 * 1024 * 1024,
+                            "Слишком большой ответ SSH"
+                        );
                         for b in data.iter() {
                             if *b == b'\n' {
                                 if let Ok(s) = std::str::from_utf8(&line)
-                                    && let Some(step) = s.strip_prefix("MYSERV:") { on_step(step); }
+                                    && let Some(step) = s.strip_prefix("MYSERV:")
+                                {
+                                    on_step(step);
+                                }
                                 line.clear();
-                            } else if line.len() < 1024 { line.push(*b); }
+                            } else if line.len() < 1024 {
+                                line.push(*b);
+                            }
                         }
                         out.extend_from_slice(&data);
                     }
@@ -133,8 +200,57 @@ impl Session {
                     _ => {} // stderr may contain secrets; never forward it to UI or telemetry.
                 }
             }
-            ensure!(exit == Some(0), "Команда сервера не завершилась успешно (код {:?}). Проверьте требования VPS и /var/log/myserv-setup.log через консоль хостинга; повторный запуск сохранит выданные ключи.", exit);
+            if exit != Some(0) {
+                anyhow::bail!(friendly_failure(&String::from_utf8_lossy(&out), exit));
+            }
             Ok(String::from_utf8(out)?)
-        }).await.context("Установка превысила 30 минут. Проверьте сервер перед повторным запуском")?
+        })
+        .await
+        .context("Установка превысила 30 минут. Проверьте сервер перед повторным запуском")?
+    }
+}
+
+pub fn friendly_failure(output: &str, exit: Option<u32>) -> &'static str {
+    let code = output
+        .lines()
+        .find_map(|line| line.strip_prefix("MYSERV_ERROR:"));
+    match code {
+        Some("root") => {
+            "У этого пользователя нет прав администратора. Используйте root или пользователя с правами sudo"
+        }
+        Some("systemd") => {
+            "Этот тип сервера не подходит. Нужен полноценный VPS с Ubuntu 24.04, а не контейнер хостинга"
+        }
+        Some("os") => {
+            "На сервере нужна Ubuntu 24.04 LTS. Выберите эту систему в панели хостинга или используйте другой VPS"
+        }
+        Some("arch") => "Архитектура сервера не поддерживается. Выберите VPS x86_64 или ARM64",
+        Some("memory") => {
+            "На сервере недостаточно памяти. Для установки требуется тариф с 2 ГБ RAM или больше"
+        }
+        Some("disk") => {
+            "На сервере недостаточно свободного места. Для первой установки нужно не менее 8 ГБ"
+        }
+        Some("python") => {
+            "В образе сервера отсутствует Python 3. Используйте стандартный образ Ubuntu 24.04 от хостинга"
+        }
+        Some("kubernetes") => {
+            "На сервере уже установлен Kubernetes. Для этой версии приложения нужен отдельный чистый VPS"
+        }
+        Some("ports") => {
+            "Порт 443 или 51820 уже занят другим приложением. Используйте чистый VPS или освободите эти порты"
+        }
+        Some("containers") => {
+            "На сервере уже есть Docker-контейнеры. Чтобы сохранить их, используйте отдельный чистый VPS"
+        }
+        Some("checks") => {
+            "Не удалось проверить ресурсы сервера. Используйте стандартный образ Ubuntu 24.04 или обратитесь в поддержку"
+        }
+        _ if exit == Some(77) => {
+            "Пользователь не получил права администратора. Используйте root или логин с правами sudo и его пароль"
+        }
+        _ => {
+            "Операция на сервере остановлена. Повторите подключение; если ошибка сохраняется, обратитесь в поддержку. Существующие ключи VPN сохранятся"
+        }
     }
 }

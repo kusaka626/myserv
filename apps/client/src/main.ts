@@ -74,15 +74,15 @@ let step: Step = "guide",
   error = "",
   notice = "",
   session = "",
-  fingerprint = "",
   summary = "",
   license = "";
 let ip = "",
   port = 22,
+  username = "root",
   email = "",
   protocol = "amnezia_wg",
   domain = "";
-let settings = { billing_ready: false, mobile: false, version: "0.1.0" };
+let settings = { billing_ready: false, mobile: false, version: "0.1.1" };
 let profile: Profile | null = null,
   paymentUrl = "",
   activeStage = "preflight";
@@ -125,9 +125,9 @@ function render() {
 }
 function body(): string {
   if (step === "guide")
-    return `<section class="hero-card"><div><span class="pill">ВМЕСТО ГОТОВОГО VPN — СВОЙ</span><h2>От пустого VPS<br>до первого подключения.</h2><p>Вы арендуете сервер. MyServ устанавливает<br class="desktop-only"> всё необходимое и выдаёт доступ.</p><div class="hero-tags"><span>${icon("check")} Без терминала</span><span>${icon("check")} Ключи под вашим контролем</span></div></div><div class="server-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="rack"><div><span></span><span></span><b>01</b></div><div><span></span><span></span><b>02</b></div><div><span></span><span></span><b>03</b></div></div><div class="secure-chip">${icon("shield-check")} ваш сервер</div><span class="art-star">✳</span></div></section><div class="section-heading"><h2>Сначала — арендуем сервер</h2><span>~5 минут</span></div><div class="guide-grid"><article><span class="guide-num">01</span><h3>Выберите хостинг</h3><p>Любой провайдер с VPS, публичным IPv4 и разрешённым VPN-трафиком. Выберите удобную страну размещения.</p></article><article><span class="guide-num">02</span><h3>Закажите чистый VPS</h3><p>Ubuntu 24.04 LTS · 2 vCPU · 2 ГБ RAM · 20 ГБ SSD. Без предустановленной панели управления.</p></article><article><span class="guide-num">03</span><h3>Сохраните SSH-доступ</h3><p>В панели получите IPv4, пароль root или SSH-ключ. Разрешите SSH и порт выбранного протокола в firewall хостинга.</p></article></div><details class="details"><summary>${icon("book-open")} Что именно я покупаю и сколько это стоит?</summary><p>Аренду VPS вы оплачиваете выбранному хостингу отдельно, обычно ежемесячно. MyServ берёт 199 ₽ один раз за настройку одного сервера. Приложение установит Docker, Kubernetes K3s и один выбранный протокол. Готовую конфигурацию можно импортировать в AmneziaWG 3.1 или совместимый Xray-клиент. Эта версия не включает встроенный VPN-туннель.</p><p>Для REALITY откройте 443/TCP. Для AmneziaWG — 51820/UDP. Порт SSH обычно 22/TCP. API Kubernetes будет доступен только внутри VPS.</p></details><div class="action-row"><div><strong>199 ₽ <span>/ настройка</span></strong><small>Аренда VPS оплачивается отдельно</small></div><button class="primary" id="next">Сервер куплен, продолжить ${icon("arrow-right")}</button></div>`;
+    return `<section class="hero-card"><div><span class="pill">ВМЕСТО ГОТОВОГО VPN — СВОЙ</span><h2>От пустого VPS<br>до первого подключения.</h2><p>Вы арендуете сервер. MyServ устанавливает<br class="desktop-only"> всё необходимое и выдаёт доступ.</p><div class="hero-tags"><span>${icon("check")} Без терминала</span><span>${icon("check")} Ключи под вашим контролем</span></div></div><div class="server-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="rack"><div><span></span><span></span><b>01</b></div><div><span></span><span></span><b>02</b></div><div><span></span><span></span><b>03</b></div></div><div class="secure-chip">${icon("shield-check")} ваш сервер</div><span class="art-star">✳</span></div></section><div class="section-heading"><h2>Сначала — арендуем сервер</h2><span>~5 минут</span></div><div class="guide-grid"><article><span class="guide-num">01</span><h3>Выберите хостинг</h3><p>Любой провайдер с VPS, публичным IPv4 и разрешённым VPN-трафиком. Выберите удобную страну размещения.</p></article><article><span class="guide-num">02</span><h3>Закажите чистый VPS</h3><p>Ubuntu 24.04 LTS · 2 vCPU · 2 ГБ RAM · 20 ГБ SSD. Без предустановленной панели управления.</p></article><article><span class="guide-num">03</span><h3>Сохраните SSH-доступ</h3><p>В панели получите IPv4, логин и пароль. Разрешите SSH и порт выбранного протокола в firewall хостинга.</p></article></div><details class="details"><summary>${icon("book-open")} Что именно я покупаю и сколько это стоит?</summary><p>Аренду VPS вы оплачиваете выбранному хостингу отдельно, обычно ежемесячно. MyServ берёт 199 ₽ один раз за настройку одного сервера. Приложение установит Docker, Kubernetes K3s и один выбранный протокол. Готовую конфигурацию можно импортировать в AmneziaWG 3.1 или совместимый Xray-клиент. Эта версия не включает встроенный VPN-туннель.</p><p>Для REALITY откройте 443/TCP. Для AmneziaWG — 51820/UDP. Порт SSH обычно 22/TCP. API Kubernetes будет доступен только внутри VPS.</p></details><div class="action-row"><div><strong>199 ₽ <span>/ настройка</span></strong><small>Аренда VPS оплачивается отдельно</small></div><button class="primary" id="next">Сервер куплен, продолжить ${icon("arrow-right")}</button></div>`;
   if (step === "server")
-    return `<section class="panel"><div class="panel-title">${icon("server")} Подключение по SSH <span class="tag">Ubuntu 24.04</span></div><div class="form-grid"><label>IPv4 сервера<input id="ip" value="${esc(ip)}" placeholder="203.0.113.10" inputmode="decimal" autocomplete="off"></label><label>SSH-порт<input id="port" type="number" min="1" max="65535" value="${port}"></label></div><button class="secondary" id="discover" ${busy ? "disabled" : ""}>${icon(busy ? "loader-circle" : "key-round", busy ? "spin" : "")} Проверить отпечаток сервера</button>${fingerprint ? `<div class="fingerprint"><small>SSH HOST KEY</small><code>${esc(fingerprint)}</code><p>В консоли хостинга выполните <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256</code> и сравните отпечаток. При другом типе ключа выберите соответствующий .pub.</p><label class="checkbox"><input type="checkbox" id="trust"> Отпечаток совпадает с ключом в консоли хостинга</label></div><div class="divider"></div><label>Пароль root<input id="password" type="password" autocomplete="off" placeholder="Пароль из панели хостинга"></label><details><summary>Использовать приватный SSH-ключ вместо пароля</summary><label>SSH-ключ<textarea id="private-key" rows="4" spellcheck="false" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea></label><label>Пароль ключа, если задан<input id="passphrase" type="password" autocomplete="off"></label></details>` : ""}</section><div class="action-row"><button class="text-button" id="back">${icon("arrow-left")} Назад</button><button class="primary" id="connect" ${busy || !fingerprint ? "disabled" : ""}>${icon(busy ? "loader-circle" : "shield-check", busy ? "spin" : "")} Подключить и проверить</button></div>`;
+    return `<section class="panel"><div class="panel-title">${icon("server")} Данные сервера <span class="tag">Ubuntu 24.04</span></div><p class="hint">Введите данные из панели хостинга. Мы подключимся и проверим сервер автоматически.</p><div class="form-grid"><label>IP сервера<input id="ip" value="${esc(ip)}" placeholder="203.0.113.10" inputmode="decimal" autocomplete="off" ${busy ? "disabled" : ""}></label><label>Порт<input id="port" type="number" min="1" max="65535" value="${port}" ${busy ? "disabled" : ""}></label></div><label>Логин<input id="username" value="${esc(username)}" placeholder="root" autocomplete="off" autocapitalize="none" spellcheck="false" ${busy ? "disabled" : ""}></label><label>Пароль<input id="password" type="password" autocomplete="off" placeholder="Пароль из панели хостинга" ${busy ? "disabled" : ""}></label><p class="hint">Обычно логин — root. Если хостинг выдал другой логин, укажите его. Пароль не сохраняется на диске.</p></section><div class="action-row"><button class="text-button" id="back" ${busy ? "disabled" : ""}>${icon("arrow-left")} Назад</button><button class="primary" id="connect" ${busy ? "disabled" : ""}>${icon(busy ? "loader-circle" : "shield-check", busy ? "spin" : "")} ${busy ? "Подключаемся и проверяем…" : "Подключить сервер"}</button></div>`;
   if (step === "protocol")
     return `<div class="connected">${icon("check-check")} ${esc(ip)} <span>${esc(summary)}</span></div><div class="protocol-grid"><button class="protocol-card ${protocol === "amnezia_wg" ? "selected" : ""}" data-protocol="amnezia_wg"><span class="selection-dot"></span><span class="protocol-icon">${icon("zap")}</span><span class="tag">Быстрое подключение</span><h2>AmneziaWG <em>3.1</em></h2><p>Для повседневного использования, звонков и видео. Обфускация трафика на основе WireGuard.</p><div class="protocol-bottom">UDP · порт 51820 <strong>.conf + QR</strong></div></button><button class="protocol-card ${protocol === "vless_reality" ? "selected" : ""}" data-protocol="vless_reality"><span class="selection-dot"></span><span class="protocol-icon">${icon("globe")}</span><span class="tag">TLS-транспорт</span><h2>VLESS <em>+ REALITY</em></h2><p>Xray с защищённым транспортом REALITY. Работает поверх TCP, нужен подходящий TLS-домен.</p><div class="protocol-bottom">TCP · порт 443 <strong>ссылка + QR</strong></div></button></div>${protocol === "vless_reality" ? `<section class="panel"><label>Домен назначения REALITY<input id="domain" value="${esc(domain)}" placeholder="Домен с поддержкой TLS 1.3 и HTTP/2" spellcheck="false"></label><p class="hint">Домен должен поддерживать TLS 1.3 и HTTP/2 и быть доступен с VPS. Приложение проверит его при установке; доступность примера не гарантирована.</p></section>` : ""}<div class="info-strip">${icon("layers")} Docker-контейнер под управлением Kubernetes K3s. Один сервер, один выбранный протокол.</div><div class="action-row"><button class="text-button" id="back">${icon("arrow-left")} Назад</button><button class="primary" id="next">Продолжить ${icon("arrow-right")}</button></div>`;
   if (step === "payment")
@@ -207,7 +207,7 @@ function bind() {
   });
   on("help", () => {
     notice =
-      "Купите чистый VPS → подтвердите SSH-ключ → выберите протокол → оплатите настройку → импортируйте конфигурацию. Аренда сервера оплачивается хостингу отдельно.";
+      "Купите чистый VPS → введите IP, логин, пароль и порт → выберите протокол → оплатите настройку → импортируйте конфигурацию. Аренда сервера оплачивается хостингу отдельно.";
     render();
   });
   on("next", () => {
@@ -246,45 +246,27 @@ function bind() {
         render();
       }),
   );
-  on("discover", () => {
+  on("connect", () => {
     ip = val("ip").trim();
     port = Number(val("port"));
-    fingerprint = "";
+    username = val("username").trim();
+    let password = val("password");
     void action(async () => {
-      native();
-      if (!validIp(ip) || port < 1 || port > 65535 || !Number.isInteger(port))
-        throw new Error("Укажите IPv4 и SSH-порт от 1 до 65535.");
-      fingerprint = await invoke<string>("discover", { ip, port });
-    });
-  });
-  for (const id of ["ip", "port"])
-    document.getElementById(id)?.addEventListener("input", () => {
-      fingerprint = "";
-      const b = document.getElementById("connect") as HTMLButtonElement | null;
-      if (b) b.disabled = true;
-    });
-  on("connect", () => {
-    const trusted = (document.getElementById("trust") as HTMLInputElement)
-      ?.checked;
-    const credentials = {
-      password: val("password"),
-      private_key: val("private-key"),
-      passphrase: val("passphrase"),
-    };
-    void action(async () => {
-      native();
-      if (!trusted)
-        throw new Error("Сначала сравните и подтвердите SSH-отпечаток.");
-      const c = await invoke<{ session: string; summary: string }>("connect", {
-        server: { ip, port, fingerprint },
-        credentials,
-      });
-      credentials.password = "";
-      credentials.private_key = "";
-      credentials.passphrase = "";
-      session = c.session;
-      summary = c.summary;
-      step = "protocol";
+      try {
+        native();
+        if (!validIp(ip) || port < 1 || port > 65535 || !Number.isInteger(port))
+          throw new Error("Укажите IPv4 и порт от 1 до 65535.");
+        if (!username || !password)
+          throw new Error("Введите логин и пароль сервера.");
+        const c = await invoke<{ session: string; summary: string }>("connect", {
+          ip, port, username, password,
+        });
+        session = c.session;
+        summary = c.summary;
+        step = "protocol";
+      } finally {
+        password = "";
+      }
     });
   });
   on("pay", () => {
@@ -369,7 +351,6 @@ function bind() {
         session = "";
         profile = null;
         license = "";
-        fingerprint = "";
         paymentUrl = "";
         step = "guide";
         notice =

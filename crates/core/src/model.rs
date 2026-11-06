@@ -37,9 +37,34 @@ impl Server {
 // Never derive Debug or Serialize for credentials. No credentials reach billing.
 #[derive(Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct Credentials {
+    #[serde(default = "default_username")]
+    pub username: String,
     pub password: String,
     pub private_key: String,
     pub passphrase: String,
+}
+
+fn default_username() -> String {
+    "root".into()
+}
+
+impl Credentials {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.username.is_empty()
+                && self.username.len() <= 64
+                && self
+                    .username
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_-.".contains(&b)),
+            "Проверьте логин сервера: например, root или ubuntu"
+        );
+        ensure!(
+            !self.password.contains(['\n', '\r']),
+            "Пароль не должен содержать перенос строки"
+        );
+        Ok(())
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
