@@ -86,7 +86,7 @@ let settings = {
   free_preview: false,
   billing_ready: false,
   mobile: false,
-  version: "0.1.2",
+  version: "0.1.3",
 };
 let profile: Profile | null = null,
   paymentUrl = "",

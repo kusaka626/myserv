@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 # Executed over pinned SSH as root. MS_BUNDLE contains base64 JSON, never shell code.
-set -euo pipefail
+set -Eeuo pipefail
 umask 077
-exec 9>/var/lock/myserv-setup.lock
-flock -n 9
 exec 3>&1
+stage=prepare
+myserv_failed() {
+    local status=$1 line=$2
+    trap - ERR
+    printf 'MYSERV_ERROR:install-%s\nMYSERV_DETAIL:%s:%s\n' "$stage" "$line" "$status" >&3
+    exit "$status"
+}
+trap 'myserv_failed "$?" "$LINENO"' ERR
+exec 9>/var/lock/myserv-setup.lock
+flock -n 9 || { printf 'MYSERV_ERROR:install-locked\n' >&3; exit 1; }
 exec >>/var/log/myserv-setup.log 2>&1
-trap 'echo MYSERV:failed >&3' ERR
+stage=state
 mkdir -p /var/lib/myserv
 chmod 700 /var/lib/myserv
 export MS_BUNDLE
@@ -35,20 +43,29 @@ unset MS_BUNDLE
 cd /var/lib/myserv
 protocol=$(cat protocol)
 echo MYSERV:packages >&3
+stage=packages
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y --no-install-recommends docker.io curl ca-certificates iptables openssl
+if [ "$protocol" = amnezia_wg ]; then
+    # docker.io alone can fall back to the legacy builder, which rejects RUN --mount.
+    apt-get install -y --no-install-recommends docker-buildx
+    docker buildx version
+fi
 systemctl enable --now docker
 if [ "$protocol" = amnezia_wg ]; then
+    stage=tun
     test -c /dev/net/tun
     printf 'net.ipv4.ip_forward=1\n' >/etc/sysctl.d/90-myserv.conf
     sysctl -p /etc/sysctl.d/90-myserv.conf
 else
+    stage=reality
     domain=$(python3 -c "import json; print(json.load(open('server.json'))['inbounds'][0]['streamSettings']['realitySettings']['serverNames'][0])")
     timeout 20 openssl s_client -connect "$domain:443" -servername "$domain" -tls1_3 -alpn h2 -verify_return_error -verify_hostname "$domain" </dev/null >reality-check.log 2>&1
     grep -q 'ALPN protocol: h2' reality-check.log
 fi
 echo MYSERV:kubernetes >&3
+stage=kubernetes-download
 if [ ! -x /usr/local/bin/k3s ]; then
     case "$(uname -m)" in x86_64) arch=amd64; binary=k3s;; aarch64) arch=arm64; binary=k3s-arm64;; *) exit 10;; esac
     version='v1.34.13+k3s1'
@@ -61,6 +78,7 @@ if [ ! -x /usr/local/bin/k3s ]; then
         install -m 755 "$binary" /usr/local/bin/k3s
     )
 fi
+stage=kubernetes-start
 if [ ! -f /etc/systemd/system/myserv-k3s.service ]; then
 cat >/etc/systemd/system/myserv-k3s.service <<'UNIT'
 [Unit]
@@ -90,9 +108,10 @@ done
 # Single-node host-gw CNI needs no exposed VXLAN port. Control plane is loopback-only.
 k3s kubectl get nodes
 echo MYSERV:image >&3
+stage=image
 if [ "$protocol" = amnezia_wg ]; then
     if ! docker image inspect myserv-awg:3.1.20260828 >/dev/null 2>&1; then
-        docker build -t myserv-awg:3.1.20260828 .
+        DOCKER_BUILDKIT=1 docker build -t myserv-awg:3.1.20260828 .
     fi
     config=awg.conf
 else
@@ -101,6 +120,7 @@ else
     config=server.json
 fi
 echo MYSERV:deploy >&3
+stage=deploy
 k3s kubectl create namespace myserv --dry-run=client -o yaml | k3s kubectl apply -f -
 k3s kubectl -n myserv create secret generic tunnel --from-file="$config" --dry-run=client -o yaml | k3s kubectl apply --server-side -f -
 k3s kubectl apply -f deployment.json

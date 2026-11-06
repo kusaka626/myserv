@@ -210,11 +210,41 @@ impl Session {
     }
 }
 
-pub fn friendly_failure(output: &str, exit: Option<u32>) -> &'static str {
+pub fn friendly_failure(output: &str, exit: Option<u32>) -> String {
     let code = output
         .lines()
         .find_map(|line| line.strip_prefix("MYSERV_ERROR:"));
-    match code {
+    let message = match code {
+        Some("install-locked") => {
+            "На сервере уже идёт установка MyServ. Дождитесь её завершения и подключитесь снова"
+        }
+        Some("install-prepare") => {
+            "Не удалось открыть журнал или служебные файлы установки. Проверьте свободное место и права пользователя"
+        }
+        Some("install-state") => {
+            "Не удалось прочитать или сохранить настройки MyServ. Если ранее выбран другой протокол, повторите установку с ним. Сохранённые ключи не удаляйте"
+        }
+        Some("install-packages") => {
+            "Не удалось установить системные пакеты, Docker или Buildx. Подробности находятся в /var/log/myserv-setup.log на сервере"
+        }
+        Some("install-tun") => {
+            "Не удалось включить сетевой интерфейс VPN. Проверьте, что хостинг предоставляет /dev/net/tun и разрешает IP forwarding"
+        }
+        Some("install-reality") => {
+            "Проверка домена REALITY не прошла. Нужен доступный с сервера домен с TLS 1.3, HTTP/2 и действительным сертификатом"
+        }
+        Some("install-kubernetes-download") => {
+            "Не удалось скачать или проверить Kubernetes K3s. Проверьте доступ сервера к GitHub; подробности — /var/log/myserv-setup.log"
+        }
+        Some("install-kubernetes-start") => {
+            "Kubernetes K3s не запустился. Подробности — /var/log/myserv-setup.log и журнал службы myserv-k3s на сервере"
+        }
+        Some("install-image") => {
+            "Не удалось собрать или загрузить контейнер VPN. Подробности — /var/log/myserv-setup.log; проверьте доступ сервера к реестрам контейнеров и свободное место"
+        }
+        Some("install-deploy") => {
+            "Контейнер VPN не вышел в готовое состояние. Подробности — /var/log/myserv-setup.log и состояние контейнеров myserv в Kubernetes"
+        }
         Some("root") => {
             "У этого пользователя нет прав администратора. Используйте root или пользователя с правами sudo"
         }
@@ -252,5 +282,31 @@ pub fn friendly_failure(output: &str, exit: Option<u32>) -> &'static str {
         _ => {
             "Операция на сервере остановлена. Повторите подключение; если ошибка сохраняется, обратитесь в поддержку. Существующие ключи VPN сохранятся"
         }
+    };
+    // Only numeric diagnostics cross the UI boundary; raw logs may contain secrets.
+    let details = output
+        .lines()
+        .find_map(|line| line.strip_prefix("MYSERV_DETAIL:"))
+        .and_then(|s| s.split_once(':'))
+        .and_then(|(line, status)| Some((line.parse::<u32>().ok()?, status.parse::<u32>().ok()?)));
+    match details {
+        Some((line, status)) => format!("{message}. Код {status}, строка установщика {line}"),
+        None => message.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::friendly_failure;
+
+    #[test]
+    fn installer_error_reports_stage_and_numeric_location_without_raw_logs() {
+        let output = "private-secret\nMYSERV_ERROR:install-image\nMYSERV_DETAIL:124:42\n";
+        let message = friendly_failure(output, Some(42));
+        assert!(message.contains("контейнер VPN"));
+        assert!(message.contains("Код 42, строка установщика 124"));
+        assert!(!message.contains("private-secret"));
+        assert!(!friendly_failure("MYSERV_DETAIL:secret:password", Some(1)).contains("password"));
+        assert!(friendly_failure("MYSERV_ERROR:install-locked\n", Some(1)).contains("уже идёт"));
     }
 }
